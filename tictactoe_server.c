@@ -15,7 +15,6 @@
 #include "tictactoe_lib.h"
 
 /* #define section, for now we will define the number of rows and columns */
-
 #define TIMEOUT 30
 #define MAXGAMES 10
 
@@ -36,6 +35,8 @@ int getPossibleWin(int playerNumber, char board[ROWS][COLUMNS]);
 void makeMove(char board[ROWS][COLUMNS], int playerNumber, int choice);
 void initializeGames(struct GameState games[MAXGAMES]);
 struct SocketData createServerSocket(int port);
+struct SocketData createMulticastSocket(char ipAddr[15], int port, struct ip_mreq mreq);
+
 
 int main(int argc, char *argv[])
 {
@@ -44,15 +45,16 @@ int main(int argc, char *argv[])
     srand((unsigned)time(&t));
 
     int rc;
-    struct SocketData sockData;
+    struct SocketData sockData, MC_sockData;
     int port;
     struct sockaddr_in clientaddr;
     struct GameState games[MAXGAMES];
     initializeGames(games);
     int runningGames = 0;
-    int clientSDList[MAXGAMES] = {0};
+    int clientSDList[MAXGAMES + 1] = {0};
     fd_set socketFDS;
     int maxSD = 0;
+    struct ip_mreq mreq;
 
     // read in and validate parameters
     if (argc != 2)
@@ -65,6 +67,7 @@ int main(int argc, char *argv[])
 
     // create the socket
     sockData = createServerSocket(port);
+    MC_sockData = createMulticastSocket(MC_GROUP, MC_PORT, mreq);
     printf("socket created!\n");
     listen(sockData.sock, 5);
     maxSD = sockData.sock;
@@ -74,6 +77,7 @@ int main(int argc, char *argv[])
     {
         FD_ZERO(&socketFDS);
         FD_SET(sockData.sock, &socketFDS);
+        FD_SET(MC_sockData.sock, &socketFDS);
 
         // find the max socket
         for (int i = 0; i < MAXGAMES; i++)
@@ -88,6 +92,8 @@ int main(int argc, char *argv[])
             }
         }
 
+        maxSD = max(maxSD, MC_sockData.sock);
+
         // select a connection
         rc = select(maxSD + 1, &socketFDS, NULL, NULL, NULL);
         printf("select() returned code: %d\n", rc);
@@ -97,6 +103,7 @@ int main(int argc, char *argv[])
         }
 
 
+        //TODO: abstract the adding of a new client to a separate function
         if (FD_ISSET(sockData.sock, &socketFDS))
         {
             // accept the connection
@@ -125,6 +132,19 @@ int main(int argc, char *argv[])
         // for every connection
         for (int i = 0; i < MAXGAMES; i++)
         {
+            if (FD_ISSET(MC_sockData)){
+                char reconnectMsg[2];
+                rc = recvfrom(MC_sockData.sock, reconnectMsg, 3, 0, (struct sockaddr *) &clientaddr, &sizeof(clientaddr));
+
+                char connectInfo[3];
+                connectInfo[0] = VERSION;
+                connectInfo[1] = itons(port);
+                // TODO: check to make sure this value is correct
+
+                rc = sendto()
+            }
+
+
             // if connection is active read from that socket
             if (FD_ISSET(clientSDList[i], &socketFDS))
             {
@@ -132,7 +152,7 @@ int main(int argc, char *argv[])
                 int bytesRead;
 
                 // read in message
-                bytesRead = read(clientSDList[i], buf, 5);
+                bytesRead = recvfrom(clientSDList[i], buf, 5);
                 printf("bytesRead: %d\n", bytesRead);
                 printf("Message from client: ");
                 for (int i = 0; i < bytesRead; i++)
@@ -476,4 +496,28 @@ struct SocketData createServerSocket(int port)
     sockData.my_addr_len = (socklen_t) sizeof(addr);
 
     return sockData;
+}
+
+struct SocketData createMulticastSocket(char ipAddr[15], int port, struct ip_mreq mreq){
+    struct SocketData MC_sockData;
+    MC_sockData.sock = socket(AF_INET, SOCK_DGRAM, 0);
+    bzero((char *)&MC_sockData.my_addr, sizeof(addr));
+    MC_sockData.my_addr.sin_family = AF_INET;
+    MC_sockData.my_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    MC_sockData.my_addr.sin_port = htons(port);
+    MC_sockData.my_addr_len = sizeof(MC_sockData.my_addr);
+
+    if (bind(MC_sockData.sock, (struct sockaddr *) $MC_sockData.my_addr, MC_sockData.my_addr_len) < 0){
+        perror("Binding error: ");
+        exit(1);
+    }
+
+    mreq.imr_multiaddr.s_addr = inet_addr(ipAddr);
+    mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+    if (setsockopt(MC_sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) < 0) {
+        perror("setsockopt mreq");
+        exit(1);
+    }
+
+    return MC_sockData;
 }

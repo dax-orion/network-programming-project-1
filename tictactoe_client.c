@@ -16,7 +16,7 @@
 #include "tictactoe_lib.h"
 
 int tictactoe(char board[ROWS][COLUMNS], struct SocketData sockData, int playerChoice, struct ParsedMessage messages[11]);
-void findNewServer(struct SocketData *sockData);
+struct SocketData findNewServer(struct SocketData sockData, char boardState[9], int currentSeqNum);
 struct SocketData createClientSocket(char ipAddr[15], int port);
 
 int main(int argc, char *argv[])
@@ -55,7 +55,7 @@ int main(int argc, char *argv[])
         messages[0] = newMessage;
 
         // send new game message we just created
-        rc = send(sockData.sock, buf, 5, 0);
+        rc = sendto(sockData.sock, buf, 5, 0);
         printf("Send return code: %d\n", rc);
         if (rc == -1)
         {
@@ -159,7 +159,7 @@ int tictactoe(char board[ROWS][COLUMNS], struct SocketData sockData, int playerC
             messages[seqCount] = newMessage;
 
             
-            rc = send(sockData.sock, buf, 5, 0);
+            rc = sendto(sockData.sock, buf, 5, 0);
             seqCount++;
             if (rc == -1)
             {
@@ -172,7 +172,7 @@ int tictactoe(char board[ROWS][COLUMNS], struct SocketData sockData, int playerC
             printf("Waiting for server...\n");
             char buf[5];
             int bytesRead;
-            bytesRead = read(sockData.sock, buf, 5);
+            bytesRead = recvfrom(sockData.sock, buf, 5);
 
             printf("Bytesread: %d\n", bytesRead);
             printf("Message from server: ");
@@ -189,6 +189,10 @@ int tictactoe(char board[ROWS][COLUMNS], struct SocketData sockData, int playerC
             else if (bytesRead == 0){
                 printf("Server disconnected\n");
                 close(sockData.sock);
+                char boardState[9];
+                getBoardState(board, boardState);
+                int currentSeqNum = seqCount - 1;
+                sockData = findNewServer(sockData, boardState, currentSeqNum);
                 break;
             }
 
@@ -240,7 +244,7 @@ int tictactoe(char board[ROWS][COLUMNS], struct SocketData sockData, int playerC
                     messages[seqCount] = newMessage;
 
                     
-                    rc = send(sockData.sock, buf, 5, 0);
+                    rc = sendto(sockData.sock, buf, 5, 0);
                 }
             }
             // handle a game over command from server
@@ -264,10 +268,43 @@ int tictactoe(char board[ROWS][COLUMNS], struct SocketData sockData, int playerC
     return 0;
 }
 
-void findNewServer(struct SocketData *sockData){
+struct SocketData findNewServer(struct SocketData sockData, char boardState[9], int currentSeqNum){
     // Uses multicast to look for a new server
-    
+    int rc;
 
+    bzero((char *)&addr, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(MC_PORT);
+    addr.sin_addr.s_addr = inet_addr(MC_GROUP);
+    addrlen = sizeof(addr);
+
+    char newServerMsg[13];
+    newServerMsg[0] = VERSION;
+    newServerMsg[1] = RECONNECT;
+    rc = sendto(sockData.sock, newServerMsg, 2, 0, (struct sockaddr *) &MC_GROUP, sizeof(MC_GROUP));
+
+    if (rc < 0) {
+        perror("sendto error: ");
+        exit(1);
+    }
+
+    char serverResp[3];
+    rc = recvfrom(sockData.sock, serverResp, 3, 0, (struct sockaddr *) &sockData.my_addr, &sockData.my_addr_len);
+
+    char resumeMsg[13];
+    resumeMsg[0] = VERSION;
+    resumeMsg[1] = RESUME;
+    resumeMsg[2] = 0x00;
+    resumeMsg[3] = 0x00;
+    resumeMsg[4] = currentSeqNum;
+
+    for (int i = 5; i < 14; i++){
+        resumeMsg[i] = boardState[i - 5];
+    }
+
+    rc = sendto(sockData.sock, resumeMsg, 13, 0, (struct sockaddr *) &sockData.my_addr, sockData.my_addr_len)
+
+    return sockData;
 }
 
 struct SocketData createClientSocket(char ipAddr[15], int port)

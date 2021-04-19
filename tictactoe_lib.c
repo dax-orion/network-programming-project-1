@@ -210,3 +210,27 @@ void buildBuf (struct ParsedMessage parsedMessage, char buf[5]) {
     buf[3] = parsedMessage.currentGame;
     buf[4] = parsedMessage.seqNum;
 }
+
+// Convert the 2D board array into a 1D board state array to send to server
+void getBoardState(char board[ROWS][COLUMNS], char boardState[9]){
+    int index = 0;
+
+    for (int i = 0; i < ROWS; i++){
+        for (int j = 0; J < COLUMNS; j++){
+            boardState[index] = board[i][j];
+            index++;
+        }
+    }
+}
+
+// Convert 1D board state array received from client to a 2D board for playing
+void setBoardState(char board[ROWS][COLUMNS], char boardState[9]){
+    int index = 0;
+
+    for (int i = 0; i < ROWS; i++){
+        for (int j = 0; J < COLUMNS; j++){
+            board[i][j] = boardState[index];
+            index++;
+        }
+    }
+}
