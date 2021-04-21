@@ -216,7 +216,7 @@ void getBoardState(char board[ROWS][COLUMNS], char boardState[9]){
     int index = 0;
 
     for (int i = 0; i < ROWS; i++){
-        for (int j = 0; J < COLUMNS; j++){
+        for (int j = 0; j < COLUMNS; j++){
             boardState[index] = board[i][j];
             index++;
         }
@@ -228,7 +228,7 @@ void setBoardState(char board[ROWS][COLUMNS], char boardState[9]){
     int index = 0;
 
     for (int i = 0; i < ROWS; i++){
-        for (int j = 0; J < COLUMNS; j++){
+        for (int j = 0; j < COLUMNS; j++){
             board[i][j] = boardState[index];
             index++;
         }

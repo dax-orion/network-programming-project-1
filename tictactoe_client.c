@@ -1,6 +1,6 @@
 /*
     Author: Dax Hurley and Hunter Culler
-    Description: A tic-tac-toe game client using streaming sockets
+    Description: Dgram based Tic-Tac-Toe with multicast server recover.
 */
 
 #include <stdio.h>
@@ -55,7 +55,7 @@ int main(int argc, char *argv[])
         messages[0] = newMessage;
 
         // send new game message we just created
-        rc = sendto(sockData.sock, buf, 5, 0);
+        rc = sendto(sockData.sock, buf, 5, 0, (struct sockaddr *) &sockData.my_addr, sockData.my_addr_len);
         printf("Send return code: %d\n", rc);
         if (rc == -1)
         {
@@ -159,7 +159,7 @@ int tictactoe(char board[ROWS][COLUMNS], struct SocketData sockData, int playerC
             messages[seqCount] = newMessage;
 
             
-            rc = sendto(sockData.sock, buf, 5, 0);
+            rc = sendto(sockData.sock, buf, 5, 0, (struct sockaddr *) &sockData.my_addr, sockData.my_addr_len);
             seqCount++;
             if (rc == -1)
             {
@@ -172,7 +172,7 @@ int tictactoe(char board[ROWS][COLUMNS], struct SocketData sockData, int playerC
             printf("Waiting for server...\n");
             char buf[5];
             int bytesRead;
-            bytesRead = recvfrom(sockData.sock, buf, 5);
+            bytesRead = recvfrom(sockData.sock, buf, 5, 0, (struct sockaddr *) &sockData.my_addr, &sockData.my_addr_len);
 
             printf("Bytesread: %d\n", bytesRead);
             printf("Message from server: ");
@@ -244,7 +244,7 @@ int tictactoe(char board[ROWS][COLUMNS], struct SocketData sockData, int playerC
                     messages[seqCount] = newMessage;
 
                     
-                    rc = sendto(sockData.sock, buf, 5, 0);
+                    rc = sendto(sockData.sock, buf, 5, 0, (struct sockaddr *) &sockData.my_addr, sockData.my_addr_len);
                 }
             }
             // handle a game over command from server
@@ -272,11 +272,11 @@ struct SocketData findNewServer(struct SocketData sockData, char boardState[9], 
     // Uses multicast to look for a new server
     int rc;
 
-    bzero((char *)&addr, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(MC_PORT);
-    addr.sin_addr.s_addr = inet_addr(MC_GROUP);
-    addrlen = sizeof(addr);
+    bzero((char *)&sockData.my_addr, sockData.my_addr_len);
+    sockData.my_addr.sin_family = AF_INET;
+    sockData.my_addr.sin_port = htons(MC_PORT);
+    sockData.my_addr.sin_addr.s_addr = inet_addr(MC_GROUP);
+    sockData.my_addr_len = sockData.my_addr_len;
 
     char newServerMsg[13];
     newServerMsg[0] = VERSION;
@@ -291,6 +291,9 @@ struct SocketData findNewServer(struct SocketData sockData, char boardState[9], 
     char serverResp[3];
     rc = recvfrom(sockData.sock, serverResp, 3, 0, (struct sockaddr *) &sockData.my_addr, &sockData.my_addr_len);
 
+    // TODO: Make sure this actually properly sets the port.
+    sockData.my_addr.sin_port = htons(serverResp[1] | serverResp[2] << 8);
+
     char resumeMsg[13];
     resumeMsg[0] = VERSION;
     resumeMsg[1] = RESUME;
@@ -302,7 +305,7 @@ struct SocketData findNewServer(struct SocketData sockData, char boardState[9], 
         resumeMsg[i] = boardState[i - 5];
     }
 
-    rc = sendto(sockData.sock, resumeMsg, 13, 0, (struct sockaddr *) &sockData.my_addr, sockData.my_addr_len)
+    rc = sendto(sockData.sock, resumeMsg, 13, 0, (struct sockaddr *) &sockData.my_addr, sockData.my_addr_len);
 
     return sockData;
 }
