@@ -35,8 +35,6 @@ int getPossibleWin(int playerNumber, char board[ROWS][COLUMNS]);
 void makeMove(char board[ROWS][COLUMNS], int playerNumber, int choice);
 void initializeGames(struct GameState games[MAXGAMES]);
 struct SocketData createServerSocket(int port);
-struct SocketData createMulticastSocket(char ipAddr[15], int port, struct ip_mreq mreq);
-
 
 int main(int argc, char *argv[])
 {
@@ -98,12 +96,11 @@ int main(int argc, char *argv[])
         rc = select(maxSD + 1, &socketFDS, NULL, NULL, NULL);
         printf("select() returned code: %d\n", rc);
         printf("made it past select\n");
-        if(rc == -1){
+        if (rc == -1)
+        {
             perror("error on select()");
         }
 
-
-        //TODO: abstract the adding of a new client to a separate function
         if (FD_ISSET(sockData.sock, &socketFDS))
         {
             // accept the connection
@@ -129,38 +126,60 @@ int main(int argc, char *argv[])
             }
         }
 
-        // for every connection
-        for (int i = 0; i < MAXGAMES; i++)
+        if (FD_ISSET(MC_sockData.sock, &socketFDS))
         {
-            if (FD_ISSET(MC_sockData.sock, &socketFDS)){
-                char reconnectMsg[2];
-                rc = recvfrom(MC_sockData.sock, reconnectMsg, 3, 0, (struct sockaddr *) &clientaddr, sizeof(clientaddr));
-                // TODO: Double check with Dave the correct command here.
-                if(rc < 0){
-                    perror("Error receiving on multi-cast socket");
-                    continue;
+            char reconnectMsg[2];
+            rc = recvfrom(MC_sockData.sock, reconnectMsg, 3, 0, (struct sockaddr *)&clientaddr, sizeof(clientaddr));
+            if (rc < 0)
+            {
+                perror("Error receiving on multi-cast socket");
+                continue;
+            }
+            if (reconnectMsg[0] != VERSION || reconnectMsg[1] != 0x04)
+            {
+                printf("Got an invalid message on multi-cast socket\n");
+                continue;
+            }
+
+            int hasRoom = 0;
+            // locate an empty slot
+            for (int i = 0; i < MAXGAMES; i++)
+            {
+                if (games[i].active == 0)
+                {
+                    // has an empty slot for a game
+                    hasRoom = 1;
+                    break;
                 }
-                if(reconnectMsg[0] != VERSION || reconnectMsg[1] != 0x04){
-                    printf("Got an invalid message on multi-cast socket\n");
-                    continue;
-                }
+            }
+            if (hasRoom == 0)
+            {
+                printf("No room for another connection\n");
+                continue;
+            }
+            else
+            {
                 char connectInfo[3];
                 connectInfo[0] = VERSION;
                 connectInfo[1] = htons(port);
-                // TODO: check to make sure this value is correct
-
-                rc = sendto(sockData.sock, connectInfo, 3, 0, (struct sockaddr *) &clientaddr, sizeof(clientaddr));
+                rc = sendto(MC_SockData.sock, connectInfo, 3, 0, (struct sockaddr *)&clientaddr, sizeof(clientaddr));
             }
+        }
 
+        // for every connection
+        for (int i = 0; i < MAXGAMES; i++)
+        {
 
             // if connection is active read from that socket
             if (FD_ISSET(clientSDList[i], &socketFDS))
             {
-                char buf[13];
+                char buf[5];
                 int bytesRead;
 
+                //unsigned int clientLen = sizeof(clientaddr);
                 // read in message
-                bytesRead = recvfrom(clientSDList[i], buf, 13, 0, (struct sockaddr *) &clientaddr, sizeof(clientaddr));
+                bytesRead = read(clientSDList[i], buf, 5);
+                
                 printf("bytesRead: %d\n", bytesRead);
                 printf("Message from client: ");
                 for (int i = 0; i < bytesRead; i++)
@@ -176,82 +195,20 @@ int main(int argc, char *argv[])
                     clientSDList[i] = 0;
                     continue;
                 }
-                // Check if a resume command
-                else if(buf[1] == 0x03){
-                    if(buf[0] != VERSION){
-                        printf("Resume has invalid version#!\n");
-                        close(clientSDList[i]);
-                        continue;
-                    }
-                    // read in the game state
-                    char gameState[9];
-                    for(int i=5; i<=13; i++){
-                        gameState[i-5] = buf[i];
-                    }
-                    // check if there's room for another game
-                    // if the connection was accepted there always should be
-                    if(runningGames >= MAXGAMES){
-                        printf("Can't accept any more games, queue full.");
-                        close(clientSDList[i]);
-                        clientSDList[i] = 0;
-                        continue;
-                    }
-                    int newGameIndex = -1;
-                    // TODO: A lot of this code is redundant with the new game command, see if it can be abstracted more.
-                    // find a free slot for the new game
-                    for (int i = 0; i < MAXGAMES; i++)
-                    {
-                        // game is inactive, so we can use this slot
-                        if (games[i].active == 0)
-                        {
-                            newGameIndex = i;
-                            break;
-                        }
-                    }
-                    // init the board using the sent board state
-                    setBoardState(games[newGameIndex].board, gameState);
-                    // initial values
-                    games[newGameIndex].currentPlayer = 1;
-                    games[newGameIndex].active = 1;
-                    games[newGameIndex].lastMoveTimestamp = time(NULL);
-                    games[newGameIndex].seqNum = buf[4]++;
-
-                    //begin constructing the message to be sent to the client
-                    struct ParsedMessage newMessage;
-                    newMessage.command = MOVE;
-                    // get a move from AI
-                    newMessage.move = getMove(1, games[newGameIndex].board);
-                    newMessage.currentGame = newGameIndex;
-                    newMessage.seqNum = games[newGameIndex].seqNum;
-                    // update board with move
-                    makeMove(games[newGameIndex].board, 1, newMessage.move);
-                    char buf[5];
-                    buildBuf(newMessage, buf);
-                    games[newGameIndex].messages[games[newGameIndex].seqNum] = newMessage;
-
-                    // send the buf
-                    rc = send(clientSDList[i], buf, 5, 0);
-                    games[newGameIndex].seqNum++;
-                    printf("Sent response of move %d for game resumed game %d.\n", newMessage.move, newGameIndex);
-
-                    // we have a new game, add it to the count
-                    runningGames++;
-                    printf("Remaining game slots: %d\n", MAXGAMES - runningGames);
-                }
                 else
                 {
                     // let's parse the message
                     struct ParsedMessage message = parseMessage(buf, bytesRead);
                     printf("Sequence number: %d\n", message.seqNum);
-                    if(!message.valid){
+                    if (!message.valid)
+                    {
                         printf("Got an invalid message.\n");
                         close(clientSDList[i]);
                         clientSDList[i] = 0;
                         continue;
                     }
-                    // check if there's room for another game
-                    // if the connection was accepted there always should be
-                    if(runningGames >= MAXGAMES){
+                    if (runningGames >= MAXGAMES)
+                    {
                         printf("Can't accept any more games, queue full.");
                         close(clientSDList[i]);
                         clientSDList[i] = 0;
@@ -259,7 +216,6 @@ int main(int argc, char *argv[])
                     }
                     if (message.seqNum > 0)
                     {
-                        // print the game number of the message unless it's a new game
                         printf("Game number: %d\n", message.currentGame);
                     }
                     // got new game command - check if we can accept a new game right now
@@ -308,10 +264,16 @@ int main(int argc, char *argv[])
                         runningGames++;
                         printf("Remaining game slots: %d\n", MAXGAMES - runningGames);
                     }
+                    // TODO: check if command is resume to handle reading in game board
+                    else if(message.command == RESUME)
+                    {
+
+                    }
                     else
                     {
                         // check if game is active
-                        if(!games[message.currentGame].active){
+                        if (!games[message.currentGame].active)
+                        {
                             printf("Got a message for game %d, which is inactive.\n", message.currentGame);
                             close(clientSDList[i]);
                             clientSDList[i] = 0;
@@ -537,7 +499,7 @@ struct SocketData createServerSocket(int port)
     printf("Port: %d\n", port);
 
     // build the address
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    sock = socket(AF_INET, SOCK_STREAM, 0);
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = INADDR_ANY;
@@ -549,8 +511,7 @@ struct SocketData createServerSocket(int port)
     bindResp = bind(
         sock,
         (struct sockaddr *)&addr,
-        sizeof(struct sockaddr_in)
-    );
+        sizeof(struct sockaddr_in));
 
     if (bindResp < 0)
     {
@@ -563,31 +524,7 @@ struct SocketData createServerSocket(int port)
     struct SocketData sockData;
     sockData.sock = sock;
     sockData.my_addr = addr;
-    sockData.my_addr_len = (socklen_t) sizeof(addr);
+    sockData.my_addr_len = (socklen_t)sizeof(addr);
 
     return sockData;
-}
-
-struct SocketData createMulticastSocket(char ipAddr[15], int port, struct ip_mreq mreq){
-    struct SocketData MC_sockData;
-    MC_sockData.sock = socket(AF_INET, SOCK_DGRAM, 0);
-    bzero((char *)&MC_sockData.my_addr, sizeof(MC_sockData.my_addr));
-    MC_sockData.my_addr.sin_family = AF_INET;
-    MC_sockData.my_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    MC_sockData.my_addr.sin_port = htons(port);
-    MC_sockData.my_addr_len = sizeof(MC_sockData.my_addr);
-
-    if (bind(MC_sockData.sock, (struct sockaddr *) &MC_sockData.my_addr, MC_sockData.my_addr_len) < 0){
-        perror("Binding error: ");
-        exit(1);
-    }
-
-    mreq.imr_multiaddr.s_addr = inet_addr(ipAddr);
-    mreq.imr_interface.s_addr = htonl(INADDR_ANY);
-    if (setsockopt(MC_sockData.sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) < 0) {
-        perror("setsockopt mreq");
-        exit(1);
-    }
-
-    return MC_sockData;
 }

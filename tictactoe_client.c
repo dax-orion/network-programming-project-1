@@ -55,7 +55,7 @@ int main(int argc, char *argv[])
         messages[0] = newMessage;
 
         // send new game message we just created
-        rc = sendto(sockData.sock, buf, 5, 0, (struct sockaddr *) &sockData.my_addr, sockData.my_addr_len);
+        rc = send(sockData.sock, buf, 5, 0);
         printf("Send return code: %d\n", rc);
         if (rc == -1)
         {
@@ -159,7 +159,7 @@ int tictactoe(char board[ROWS][COLUMNS], struct SocketData sockData, int playerC
             messages[seqCount] = newMessage;
 
             
-            rc = sendto(sockData.sock, buf, 5, 0, (struct sockaddr *) &sockData.my_addr, sockData.my_addr_len);
+            rc = send(sockData.sock, buf, 5, 0);
             seqCount++;
             if (rc == -1)
             {
@@ -172,7 +172,7 @@ int tictactoe(char board[ROWS][COLUMNS], struct SocketData sockData, int playerC
             printf("Waiting for server...\n");
             char buf[5];
             int bytesRead;
-            bytesRead = recvfrom(sockData.sock, buf, 5, 0, (struct sockaddr *) &sockData.my_addr, &sockData.my_addr_len);
+            bytesRead = read(sockData.sock, buf, 5, 0);
 
             printf("Bytesread: %d\n", bytesRead);
             printf("Message from server: ");
@@ -193,7 +193,7 @@ int tictactoe(char board[ROWS][COLUMNS], struct SocketData sockData, int playerC
                 getBoardState(board, boardState);
                 int currentSeqNum = seqCount - 1;
                 sockData = findNewServer(sockData, boardState, currentSeqNum);
-                break;
+                continue;
             }
 
             struct ParsedMessage message = parseMessage(buf, bytesRead);
@@ -268,20 +268,22 @@ int tictactoe(char board[ROWS][COLUMNS], struct SocketData sockData, int playerC
     return 0;
 }
 
-struct SocketData findNewServer(struct SocketData sockData, char boardState[9], int currentSeqNum){
+struct SocketData findNewServer(char boardState[9], int currentSeqNum){
     // Uses multicast to look for a new server
     int rc;
+    struct SocketData MC_SockData;
+    struct SocketData sockData;
 
-    bzero((char *)&sockData.my_addr, sockData.my_addr_len);
-    sockData.my_addr.sin_family = AF_INET;
-    sockData.my_addr.sin_port = htons(MC_PORT);
-    sockData.my_addr.sin_addr.s_addr = inet_addr(MC_GROUP);
-    sockData.my_addr_len = sockData.my_addr_len;
+    bzero((char *)&MC_SockData.my_addr, MC_SockData.my_addr_len);
+    MC_SockData.my_addr.sin_family = AF_INET;
+    MC_SockData.my_addr.sin_port = htons(MC_PORT);
+    MC_SockData.my_addr.sin_addr.s_addr = inet_addr(MC_GROUP);
+    MC_SockData.my_addr_len = sockData.my_addr_len;
 
     char newServerMsg[13];
     newServerMsg[0] = VERSION;
-    newServerMsg[1] = RECONNECT;
-    rc = sendto(sockData.sock, newServerMsg, 2, 0, (struct sockaddr *) &MC_GROUP, sizeof(MC_GROUP));
+    newServerMsg[1] = RESUME;
+    rc = sendto(MC_SockData.sock, newServerMsg, 2, 0, (struct sockaddr *) &MC_GROUP, sizeof(MC_GROUP));
 
     if (rc < 0) {
         perror("sendto error: ");
@@ -289,10 +291,14 @@ struct SocketData findNewServer(struct SocketData sockData, char boardState[9], 
     }
 
     char serverResp[3];
-    rc = recvfrom(sockData.sock, serverResp, 3, 0, (struct sockaddr *) &sockData.my_addr, &sockData.my_addr_len);
+    rc = recvfrom(MC_SockData.sock, serverResp, 3, 0, (struct sockaddr *) &sockData.my_addr, sizeof(sockData.my_addr));
+    sockData.my_addr_len = sizeof(sockData.my_addr);
 
     // TODO: Make sure this actually properly sets the port.
     sockData.my_addr.sin_port = htons(serverResp[1] | serverResp[2] << 8);
+
+    sockData.sock = socket(AF_INET, SOCK_STREAM, 0);
+    rc = connect(sockData.sock, (struct sockaddr *) &sockData.my_addr, &sockData.my_addr_len);
 
     char resumeMsg[13];
     resumeMsg[0] = VERSION;
@@ -305,7 +311,7 @@ struct SocketData findNewServer(struct SocketData sockData, char boardState[9], 
         resumeMsg[i] = boardState[i - 5];
     }
 
-    rc = sendto(sockData.sock, resumeMsg, 13, 0, (struct sockaddr *) &sockData.my_addr, sockData.my_addr_len);
+    rc = send(sockData.sock, resumeMsg, 13, 0, (struct sockaddr *) &sockData.my_addr, sockData.my_addr_len);
 
     return sockData;
 }
@@ -323,7 +329,7 @@ struct SocketData createClientSocket(char ipAddr[15], int port)
     printf("Port: %d\n", port);
 
     // build the address
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    sock = socket(AF_INET, SOCK_STREAM, 0);
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = inet_addr(ipAddr);

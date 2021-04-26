@@ -148,7 +148,7 @@ struct ParsedMessage parseMessage(char *buf, int length)
     }
 
     // command will be 0 for new game, 1 for a move or 2 for a game over
-    if(buf[1] < 0 || buf[1] > 2)
+    if(buf[1] < 0 || buf[1] > 3)
     {
         printf("invalid value for command\n");
         temp.valid = 0;
@@ -233,4 +233,31 @@ void setBoardState(char board[ROWS][COLUMNS], char boardState[9]){
             index++;
         }
     }
+}
+
+struct SocketData createMulticastSocket(char ipAddr[15], int port, struct ip_mreq mreq)
+{
+    struct SocketData MC_sockData;
+    MC_sockData.sock = socket(AF_INET, SOCK_DGRAM, 0);
+    bzero((char *)&MC_sockData.my_addr, sizeof(MC_sockData.my_addr));
+    MC_sockData.my_addr.sin_family = AF_INET;
+    MC_sockData.my_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    MC_sockData.my_addr.sin_port = htons(port);
+    MC_sockData.my_addr_len = sizeof(MC_sockData.my_addr);
+
+    if (bind(MC_sockData.sock, (struct sockaddr *)&MC_sockData.my_addr, MC_sockData.my_addr_len) < 0)
+    {
+        perror("Binding error: ");
+        exit(1);
+    }
+
+    mreq.imr_multiaddr.s_addr = inet_addr(ipAddr);
+    mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+    if (setsockopt(MC_sockData.sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) < 0)
+    {
+        perror("setsockopt mreq");
+        exit(1);
+    }
+
+    return MC_sockData;
 }

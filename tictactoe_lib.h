@@ -16,7 +16,7 @@
 #define MC_PORT 1818
 #define MC_GROUP "239.0.0.1"
 
-enum command {NEW_GAME = 0x00, MOVE = 0x01, GAME_OVER = 0x02, RESUME = 0x03, RECONNECT = 0x04};
+enum command {NEW_GAME = 0x00, MOVE = 0x01, GAME_OVER = 0x02, RESUME = 0x03};
 
 struct SocketData {
     int sock;
@@ -49,5 +49,7 @@ struct Move getRowColFromMove(int choice);
 int initSharedState(char board[ROWS][COLUMNS]);
 void getBoardState(char board[ROWS][COLUMNS], char boardState[9]);
 void setBoardState(char board[ROWS][COLUMNS], char boardState[9]);
+struct SocketData createMulticastSocket(char ipAddr[15], int port, struct ip_mreq mreq);
+
 
 #endif
