@@ -34,6 +34,7 @@ int getMove(int playerNumber, char board[ROWS][COLUMNS]);
 int getPossibleWin(int playerNumber, char board[ROWS][COLUMNS]);
 void makeMove(char board[ROWS][COLUMNS], int playerNumber, int choice);
 void initializeGames(struct GameState games[MAXGAMES]);
+int maxInt(int num1, int num2);
 struct SocketData createServerSocket(int port);
 
 int main(int argc, char *argv[])
@@ -46,6 +47,7 @@ int main(int argc, char *argv[])
     struct SocketData sockData, MC_sockData;
     int port;
     struct sockaddr_in clientaddr;
+    unsigned int clientaddrLen = sizeof(clientaddr);
     struct GameState games[MAXGAMES];
     initializeGames(games);
     int runningGames = 0;
@@ -90,7 +92,7 @@ int main(int argc, char *argv[])
             }
         }
 
-        maxSD = max(maxSD, MC_sockData.sock);
+        maxSD = maxInt(maxSD, MC_sockData.sock);
 
         // select a connection
         rc = select(maxSD + 1, &socketFDS, NULL, NULL, NULL);
@@ -129,7 +131,7 @@ int main(int argc, char *argv[])
         if (FD_ISSET(MC_sockData.sock, &socketFDS))
         {
             char reconnectMsg[2];
-            rc = recvfrom(MC_sockData.sock, reconnectMsg, 3, 0, (struct sockaddr *)&clientaddr, sizeof(clientaddr));
+            rc = recvfrom(MC_sockData.sock, reconnectMsg, 3, 0, (struct sockaddr *)&clientaddr, &clientaddrLen);
             if (rc < 0)
             {
                 perror("Error receiving on multi-cast socket");
@@ -162,7 +164,7 @@ int main(int argc, char *argv[])
                 char connectInfo[3];
                 connectInfo[0] = VERSION;
                 connectInfo[1] = htons(port);
-                rc = sendto(MC_SockData.sock, connectInfo, 3, 0, (struct sockaddr *)&clientaddr, sizeof(clientaddr));
+                rc = sendto(MC_sockData.sock, connectInfo, 3, 0, (struct sockaddr *)&clientaddr, clientaddrLen);
             }
         }
 
@@ -176,7 +178,6 @@ int main(int argc, char *argv[])
                 char buf[5];
                 int bytesRead;
 
-                //unsigned int clientLen = sizeof(clientaddr);
                 // read in message
                 bytesRead = read(clientSDList[i], buf, 5);
                 
@@ -214,15 +215,13 @@ int main(int argc, char *argv[])
                         clientSDList[i] = 0;
                         continue;
                     }
-                    if (message.seqNum > 0)
+                    // got new game or resume command - check if we can accept a new game right now
+                    if (message.command == NEW_GAME || message.command == RESUME)
                     {
-                        printf("Game number: %d\n", message.currentGame);
-                    }
-                    // got new game command - check if we can accept a new game right now
-                    if (message.command == NEW_GAME)
-                    {
-                        printf("Got new game command\n");
+                        printf("Got new game/resume command\n");
                         int newGameIndex = -1;
+                        int seqNum = -1;
+
                         // find a free slot for the new game
                         for (int i = 0; i < MAXGAMES; i++)
                         {
@@ -233,10 +232,34 @@ int main(int argc, char *argv[])
                                 break;
                             }
                         }
-                        // init the board
-                        rc = initSharedState(games[newGameIndex].board);
+                        if(newGameIndex == -1){
+                            printf("No room for new game.\n");
+                            clientSDList[i] = 0;
+                        }
+                        if(message.command == NEW_GAME) {
+                            // init the board
+                            rc = initSharedState(games[newGameIndex].board);
+                            seqNum = 0;
+                        }
+                        else if (message.command == RESUME) {
+                            // read in an additional 9 bytes for game state
+                            char transmittedState[9];
+                            bytesRead = read(clientSDList[i], transmittedState, 9);
+                            if (bytesRead < 1)
+                            {
+                                perror("Error receiving game state message");
+                                close(clientSDList[i]);
+                                clientSDList[i] = 0;
+                                continue;
+                            }
+                            // read the transmistted state into the board
+                            setBoardState(games[newGameIndex].board, transmittedState);
+                            seqNum = message.seqNum;
+                            games[newGameIndex].seqNum = message.seqNum;
+                        }
+
                         // initial values
-                        games[newGameIndex].messages[0] = message;
+                        games[newGameIndex].messages[seqNum] = message;
                         games[newGameIndex].currentPlayer = 1;
                         games[newGameIndex].active = 1;
                         games[newGameIndex].lastMoveTimestamp = time(NULL);
@@ -263,11 +286,6 @@ int main(int argc, char *argv[])
                         // we have a new game, add it to the count
                         runningGames++;
                         printf("Remaining game slots: %d\n", MAXGAMES - runningGames);
-                    }
-                    // TODO: check if command is resume to handle reading in game board
-                    else if(message.command == RESUME)
-                    {
-
                     }
                     else
                     {
@@ -504,6 +522,7 @@ struct SocketData createServerSocket(int port)
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = INADDR_ANY;
 
+
     // if we're in server mode we bind
     int bindResp;
 
@@ -527,4 +546,13 @@ struct SocketData createServerSocket(int port)
     sockData.my_addr_len = (socklen_t)sizeof(addr);
 
     return sockData;
+}
+
+int maxInt(int num1, int num2){
+    if(num1 > num2) {
+        return num1;
+    }
+    else {
+        return num2;
+    }
 }

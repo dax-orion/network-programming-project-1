@@ -20,7 +20,6 @@ enum command {NEW_GAME = 0x00, MOVE = 0x01, GAME_OVER = 0x02, RESUME = 0x03};
 
 struct SocketData {
     int sock;
-    // TODO: Rename this to just 'addr'
     struct sockaddr_in my_addr;
     socklen_t my_addr_len;
 };
