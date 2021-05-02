@@ -247,7 +247,7 @@ struct SocketData createMulticastSocket(char ipAddr[15], int port, struct ip_mre
 
     if (bind(MC_sockData.sock, (struct sockaddr *)&MC_sockData.my_addr, MC_sockData.my_addr_len) < 0)
     {
-        perror("Binding error: ");
+        perror("MC socket binding error: ");
         exit(1);
     }
 

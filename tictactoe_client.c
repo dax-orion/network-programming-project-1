@@ -12,12 +12,16 @@
 #include <unistd.h>
 #include <time.h>
 #include <errno.h>
+#include <signal.h>
 
 #include "tictactoe_lib.h"
+
+#define FALLBACK_TIMEOUT 10
 
 int tictactoe(char board[ROWS][COLUMNS], struct SocketData sockData, int playerChoice, struct ParsedMessage messages[11]);
 struct SocketData findNewServer(char boardState[9], int currentSeqNum);
 struct SocketData createClientSocket(char ipAddr[15], int port);
+struct SocketData findServerFromFile(char boardState[9], int currentSeqNum);
 
 int main(int argc, char *argv[])
 {
@@ -27,6 +31,7 @@ int main(int argc, char *argv[])
     int port;
     int playerChoice = 2;
     char *ipAddr = malloc(16);
+    signal(SIGPIPE, SIG_IGN);
 
     if (argc != 3)
     {
@@ -184,15 +189,19 @@ int tictactoe(char board[ROWS][COLUMNS], struct SocketData sockData, int playerC
             if (bytesRead == -1)
             {
                 perror("error receiving move");
-                continue;
+                close(sockData.sock);
+                exit(0);
             }
             else if (bytesRead == 0){
                 printf("Server disconnected\n");
-                close(sockData.sock);
-                char boardState[9];
-                getBoardState(board, boardState);
-                int currentSeqNum = seqCount - 1;
-                sockData = findNewServer(boardState, currentSeqNum);
+                //fflush(sockData.sock);
+                int rc = close(sockData.sock);
+                if (rc == 0) {
+                    char boardState[9];
+                    getBoardState(board, boardState);
+                    int currentSeqNum = seqCount - 1;
+                    sockData = findNewServer(boardState, currentSeqNum);
+                }
                 continue;
             }
 
@@ -270,9 +279,15 @@ int tictactoe(char board[ROWS][COLUMNS], struct SocketData sockData, int playerC
 
 struct SocketData findNewServer(char boardState[9], int currentSeqNum){
     // Uses multicast to look for a new server
+    printf("Finding new server\n");
     int rc;
     struct SocketData MC_SockData;
     struct SocketData sockData;
+
+    MC_SockData.sock = socket(AF_INET, SOCK_DGRAM, 0);
+    struct timeval tv;
+    tv.tv_sec = FALLBACK_TIMEOUT;
+    setsockopt(MC_SockData.sock, SOL_SOCKET, SO_RCVTIMEO,(char*)&tv,sizeof(tv));
 
     bzero((char *)&MC_SockData.my_addr, sizeof(MC_SockData.my_addr));
     MC_SockData.my_addr.sin_family = AF_INET;
@@ -283,23 +298,48 @@ struct SocketData findNewServer(char boardState[9], int currentSeqNum){
     char newServerMsg[13];
     newServerMsg[0] = VERSION;
     newServerMsg[1] = RESUME;
-    rc = sendto(MC_SockData.sock, newServerMsg, 2, 0, (struct sockaddr *) &MC_GROUP, sizeof(MC_GROUP));
+    rc = sendto(MC_SockData.sock, newServerMsg, 2, 0, (struct sockaddr *) &MC_SockData.my_addr, sizeof(MC_SockData.my_addr));
 
     if (rc < 0) {
         perror("sendto error: ");
+        printf("MC_SockData.sock: %d\n", MC_SockData.sock);
+        for (int i = 0; i < 2; i++){
+            printf("newServerMsg: %d\n", newServerMsg[i]);
+        }
+        
         exit(1);
     }
 
     char serverResp[3];
     rc = recvfrom(MC_SockData.sock, serverResp, 3, 0, (struct sockaddr *) &sockData.my_addr, &sockData.my_addr_len);
-    sockData.my_addr_len = sizeof(sockData.my_addr);
+    if (rc < 0) {
+        perror("error receiving new server info");
+        sockData = findServerFromFile(boardState, currentSeqNum);
+    }
+    else {
+        for (int i = 0; i < 3; i++){
+            printf("serverResp[%d]: %x\n", i, (unsigned char)serverResp[i]);
+        }
+        printf("Got new server info\n");
 
-    // Re-combine the two bytes of the transmitted port and convert to host ordering.
-    u_int16_t newPort = (u_int16_t) serverResp[1] << 8 | (u_int16_t) serverResp[2];
-    sockData.my_addr.sin_port = ntohs(newPort);
+        // Re-combine the two bytes of the transmitted port and convert to host ordering.
+        u_int16_t leftMost = (serverResp[2] & 0xFFFF) << 8;
+        u_int16_t rightMost = (serverResp[1] & 0xFFFF);
+        u_int16_t newPort = leftMost | (unsigned char) rightMost;
+        printf("Left most: %x\n", leftMost);
+        printf("Right most: %x\n", rightMost);
+        printf("New port number: %d\n", newPort);
+        sockData.my_addr.sin_port = htons(newPort);
+    }
+    
 
     sockData.sock = socket(AF_INET, SOCK_STREAM, 0);
     rc = connect(sockData.sock, (struct sockaddr *) &sockData.my_addr, sockData.my_addr_len);
+
+    if (rc == -1){
+        perror("Error connecting to new server");
+        exit(0);
+    }
 
     char resumeMsg[13];
     resumeMsg[0] = VERSION;
@@ -313,6 +353,10 @@ struct SocketData findNewServer(char boardState[9], int currentSeqNum){
     }
 
     rc = send(sockData.sock, resumeMsg, 13, 0);
+
+    if (rc < 1){
+        perror("Error sending existing game board");
+    }
 
     return sockData;
 }
@@ -356,6 +400,46 @@ struct SocketData createClientSocket(char ipAddr[15], int port)
     sockData.sock = sock;
     sockData.my_addr = addr;
     sockData.my_addr_len = (socklen_t) sizeof(addr);
+
+    return sockData;
+}
+
+struct SocketData findServerFromFile(char boardState[9], int currentSeqNum){
+    char* filename = "./fallback.txt";
+    FILE *file;
+    struct SocketData sockData;
+
+    file = fopen(filename, "r");
+
+    if(file == NULL){
+        perror("Error opening file");
+        exit(0);
+    }
+
+    char ipAddr[256];
+    if (fgets(ipAddr, 256, file) == NULL){
+        perror("Error reading from file");
+    }
+
+    printf("Ip to connect to: %s\n", ipAddr);
+
+    char newPort[256];
+    if (fgets(newPort, 256, file) == NULL){
+        perror("Error reading from file");
+    }
+
+    fclose(file);
+
+    int portNum = atoi(newPort);
+
+    printf("Port to connect to: %s\n", newPort);
+
+    sockData.my_addr.sin_family = AF_INET;
+    sockData.my_addr.sin_port = htons(portNum);
+    sockData.my_addr.sin_addr.s_addr = inet_addr(ipAddr);
+    sockData.my_addr_len = sizeof(sockData.my_addr);
+
+    printf("Attempting to connect to fallback server from file\n");
 
     return sockData;
 }

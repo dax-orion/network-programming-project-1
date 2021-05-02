@@ -137,7 +137,7 @@ int main(int argc, char *argv[])
                 perror("Error receiving on multi-cast socket");
                 continue;
             }
-            if (reconnectMsg[0] != VERSION || reconnectMsg[1] != 0x04)
+            if (reconnectMsg[0] != VERSION || reconnectMsg[1] != 0x03)
             {
                 printf("Got an invalid message on multi-cast socket\n");
                 continue;
@@ -163,8 +163,17 @@ int main(int argc, char *argv[])
             {
                 char connectInfo[3];
                 connectInfo[0] = VERSION;
-                connectInfo[1] = htons(port);
+                u_int16_t htonsPort = htons(port);
+                connectInfo[1] = (unsigned char) ((htonsPort >> 8) & 0xFF);
+	            connectInfo[2] = (unsigned char) ((htonsPort) & 0xFF);
+                
+                //memcpy(&connectInfo[1], &port, 2);
+                connectInfo[1] = port;
+                
+                printf("connectInfo[1]: %x\n", (unsigned char) connectInfo[1]);
+                printf("connectInfo[2]: %x\n", (unsigned char) connectInfo[2]);
                 rc = sendto(MC_sockData.sock, connectInfo, 3, 0, (struct sockaddr *)&clientaddr, clientaddrLen);
+                printf("Sent back availability message\n");
             }
         }
 
