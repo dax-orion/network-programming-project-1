@@ -325,8 +325,8 @@ struct SocketData findNewServer(char boardState[9], int currentSeqNum){
         printf("Got new server info\n");
 
         // Re-combine the two bytes of the transmitted port and convert to host ordering.
-        u_int16_t leftMost = (serverResp[2] & 0xFFFF) << 8;
-        u_int16_t rightMost = (serverResp[1] & 0xFFFF);
+        u_int16_t leftMost = (serverResp[1] & 0xFFFF) << 8;
+        u_int16_t rightMost = (serverResp[2] & 0xFFFF);
         u_int16_t newPort = leftMost | (unsigned char) rightMost;
         printf("Left most: %x\n", leftMost);
         printf("Right most: %x\n", rightMost);

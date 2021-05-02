@@ -164,8 +164,8 @@ int main(int argc, char *argv[])
                 char connectInfo[3];
                 connectInfo[0] = VERSION;
                 u_int16_t htonsPort = htons(port);
-                connectInfo[1] = (unsigned char) ((htonsPort >> 8) & 0xFF);
-	            connectInfo[2] = (unsigned char) ((htonsPort) & 0xFF);
+                connectInfo[1] = (unsigned char) ((htonsPort) & 0xFF);
+	            connectInfo[2] = (unsigned char) ((htonsPort >> 8) & 0xFF);
                 
                 //memcpy(&connectInfo[1], &port, 2);
                 connectInfo[1] = port;
