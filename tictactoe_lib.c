@@ -108,6 +108,7 @@ int validateMove(int choice, char board[ROWS][COLUMNS])
 
 	//checks if choice is a valid number
     if(choice < 1 || choice > 9){
+        printf("Move not between 1 and 9\n");
         return 0;
     }
     int row = (int)((choice - 1) / ROWS);
@@ -122,6 +123,7 @@ int validateMove(int choice, char board[ROWS][COLUMNS])
     }
     else
     {
+        printf("Square already taken\n");
         return 0;
     }
 }
@@ -218,6 +220,7 @@ void getBoardState(char board[ROWS][COLUMNS], char boardState[9]){
     for (int i = 0; i < ROWS; i++){
         for (int j = 0; j < COLUMNS; j++){
             boardState[index] = board[i][j];
+            printf("Spot %d: %c\n", index, boardState[index]);
             index++;
         }
     }
@@ -230,6 +233,7 @@ void setBoardState(char board[ROWS][COLUMNS], char boardState[9]){
     for (int i = 0; i < ROWS; i++){
         for (int j = 0; j < COLUMNS; j++){
             board[i][j] = boardState[index];
+            printf("Spot %d: %c\n", index, boardState[index]);
             index++;
         }
     }

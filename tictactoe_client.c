@@ -293,11 +293,13 @@ struct SocketData findNewServer(char boardState[9], int currentSeqNum){
     MC_SockData.my_addr.sin_family = AF_INET;
     MC_SockData.my_addr.sin_port = htons(MC_PORT);
     MC_SockData.my_addr.sin_addr.s_addr = inet_addr(MC_GROUP);
+    sockData.my_addr_len = sizeof(struct sockaddr_in);
     MC_SockData.my_addr_len = sockData.my_addr_len;
 
     char newServerMsg[13];
     newServerMsg[0] = VERSION;
     newServerMsg[1] = RESUME;
+    //printf(sizeof(MC_SockData.my_addr));
     rc = sendto(MC_SockData.sock, newServerMsg, 2, 0, (struct sockaddr *) &MC_SockData.my_addr, sizeof(MC_SockData.my_addr));
 
     if (rc < 0) {
@@ -332,7 +334,7 @@ struct SocketData findNewServer(char boardState[9], int currentSeqNum){
         sockData.my_addr.sin_port = htons(newPort);
     }
     
-
+    printf("New IP address: %s\n", inet_ntoa(sockData.my_addr.sin_addr));
     sockData.sock = socket(AF_INET, SOCK_STREAM, 0);
     rc = connect(sockData.sock, (struct sockaddr *) &sockData.my_addr, sockData.my_addr_len);
 
@@ -352,7 +354,7 @@ struct SocketData findNewServer(char boardState[9], int currentSeqNum){
         resumeMsg[i] = boardState[i - 5];
     }
 
-    rc = send(sockData.sock, resumeMsg, 13, 0);
+    rc = send(sockData.sock, resumeMsg, 14, 0);
 
     if (rc < 1){
         perror("Error sending existing game board");
