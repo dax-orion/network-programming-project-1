@@ -18,6 +18,7 @@
 #define TIMEOUT 30
 #define MAXGAMES 10
 
+// Structure for the game state for each game
 struct GameState
 {
     char board[ROWS][COLUMNS];
@@ -87,11 +88,13 @@ int main(int argc, char *argv[])
                 FD_SET(clientSDList[i], &socketFDS);
                 if (clientSDList[i] > maxSD)
                 {
+                    // If a socket with a greater value is added, set the maxSD to that value
                     maxSD = clientSDList[i];
                 }
             }
         }
 
+        // If mulitcast socket is greater than maxSD, set maxSD to that value
         maxSD = maxInt(maxSD, MC_sockData.sock);
 
         // select a connection
@@ -128,8 +131,10 @@ int main(int argc, char *argv[])
             }
         }
 
+        // Check if message was on the multicast socket
         if (FD_ISSET(MC_sockData.sock, &socketFDS))
         {
+            // Get message from multicast socket, should be 2 bytes every time
             char reconnectMsg[2];
             rc = recvfrom(MC_sockData.sock, reconnectMsg, 3, 0, (struct sockaddr *)&clientaddr, &clientaddrLen);
             if (rc < 0)
@@ -137,7 +142,8 @@ int main(int argc, char *argv[])
                 perror("Error receiving on multi-cast socket");
                 continue;
             }
-            if (reconnectMsg[0] != VERSION || reconnectMsg[1] != 0x03)
+            // Command should always be RESUME
+            if (reconnectMsg[0] != VERSION || reconnectMsg[1] != RESUME)
             {
                 printf("Got an invalid message on multi-cast socket\n");
                 continue;
@@ -161,17 +167,13 @@ int main(int argc, char *argv[])
             }
             else
             {
+                // Create message with VERSION and port information
                 char connectInfo[3];
                 connectInfo[0] = VERSION;
                 u_int16_t htonsPort = htons(port);
-                connectInfo[1] = (unsigned char) ((htonsPort) & 0xFF);
-	            connectInfo[2] = (unsigned char) ((htonsPort >> 8) & 0xFF);
-                
-                //memcpy(&connectInfo[1], &port, 2);
-                connectInfo[1] = port;
-                
-                printf("connectInfo[1]: %x\n", (unsigned char) connectInfo[1]);
-                printf("connectInfo[2]: %x\n", (unsigned char) connectInfo[2]);
+                memcpy(&connectInfo[1], &htonsPort, 2); //memcpy copies the network byte order version of the port number to the buffer
+
+                // Send the port information to the client
                 rc = sendto(MC_sockData.sock, connectInfo, 3, 0, (struct sockaddr *)&clientaddr, clientaddrLen);
                 printf("Sent back availability message\n");
             }
@@ -261,7 +263,7 @@ int main(int argc, char *argv[])
                                 clientSDList[i] = 0;
                                 continue;
                             }
-                            // read the transmistted state into the board
+                            // read the transmitted state into the board
                             setBoardState(games[newGameIndex].board, transmittedState);
                             seqNum = message.seqNum;
                             games[newGameIndex].seqNum = message.seqNum;
@@ -557,6 +559,7 @@ struct SocketData createServerSocket(int port)
     return sockData;
 }
 
+// Gets the max of the 2 integers
 int maxInt(int num1, int num2){
     if(num1 > num2) {
         return num1;

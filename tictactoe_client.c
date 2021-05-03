@@ -193,13 +193,18 @@ int tictactoe(char board[ROWS][COLUMNS], struct SocketData sockData, int playerC
                 exit(0);
             }
             else if (bytesRead == 0){
+                // Close existing socket
                 printf("Server disconnected\n");
-                //fflush(sockData.sock);
                 int rc = close(sockData.sock);
+
+                // On successful close of socket
                 if (rc == 0) {
+                    // Transform state of game board from 2D to 1D
                     char boardState[9];
                     getBoardState(board, boardState);
                     int currentSeqNum = seqCount - 1;
+
+                    // Call function to find new server
                     sockData = findNewServer(boardState, currentSeqNum);
                 }
                 continue;
@@ -285,10 +290,13 @@ struct SocketData findNewServer(char boardState[9], int currentSeqNum){
     struct SocketData sockData;
 
     MC_SockData.sock = socket(AF_INET, SOCK_DGRAM, 0);
+
+    // Sets timeout for the multicast socket
     struct timeval tv;
     tv.tv_sec = FALLBACK_TIMEOUT;
     setsockopt(MC_SockData.sock, SOL_SOCKET, SO_RCVTIMEO,(char*)&tv,sizeof(tv));
 
+    // Zero out information for the MC socket and rebuilds it
     bzero((char *)&MC_SockData.my_addr, sizeof(MC_SockData.my_addr));
     MC_SockData.my_addr.sin_family = AF_INET;
     MC_SockData.my_addr.sin_port = htons(MC_PORT);
@@ -296,10 +304,11 @@ struct SocketData findNewServer(char boardState[9], int currentSeqNum){
     sockData.my_addr_len = sizeof(struct sockaddr_in);
     MC_SockData.my_addr_len = sockData.my_addr_len;
 
-    char newServerMsg[13];
+    // Build message for requesting a resumed game and send it
+    char newServerMsg[2];
     newServerMsg[0] = VERSION;
     newServerMsg[1] = RESUME;
-    //printf(sizeof(MC_SockData.my_addr));
+    
     rc = sendto(MC_SockData.sock, newServerMsg, 2, 0, (struct sockaddr *) &MC_SockData.my_addr, sizeof(MC_SockData.my_addr));
 
     if (rc < 0) {
@@ -308,10 +317,10 @@ struct SocketData findNewServer(char boardState[9], int currentSeqNum){
         for (int i = 0; i < 2; i++){
             printf("newServerMsg: %d\n", newServerMsg[i]);
         }
-        
         exit(1);
     }
 
+    // Get response from the multicast group
     char serverResp[3];
     rc = recvfrom(MC_SockData.sock, serverResp, 3, 0, (struct sockaddr *) &sockData.my_addr, &sockData.my_addr_len);
     if (rc < 0) {
@@ -319,22 +328,16 @@ struct SocketData findNewServer(char boardState[9], int currentSeqNum){
         sockData = findServerFromFile(boardState, currentSeqNum);
     }
     else {
-        for (int i = 0; i < 3; i++){
-            printf("serverResp[%d]: %x\n", i, (unsigned char)serverResp[i]);
-        }
         printf("Got new server info\n");
 
-        // Re-combine the two bytes of the transmitted port and convert to host ordering.
+        // Re-combine the two bytes of the transmitted port and set the new socket to that port
         u_int16_t leftMost = (serverResp[1] & 0xFFFF) << 8;
         u_int16_t rightMost = (serverResp[2] & 0xFFFF);
         u_int16_t newPort = leftMost | (unsigned char) rightMost;
-        printf("Left most: %x\n", leftMost);
-        printf("Right most: %x\n", rightMost);
-        printf("New port number: %d\n", newPort);
         sockData.my_addr.sin_port = htons(newPort);
     }
     
-    printf("New IP address: %s\n", inet_ntoa(sockData.my_addr.sin_addr));
+    // Connect to new socket
     sockData.sock = socket(AF_INET, SOCK_STREAM, 0);
     rc = connect(sockData.sock, (struct sockaddr *) &sockData.my_addr, sockData.my_addr_len);
 
@@ -343,6 +346,7 @@ struct SocketData findNewServer(char boardState[9], int currentSeqNum){
         exit(0);
     }
 
+    // Build and send game state message to the new server
     char resumeMsg[13];
     resumeMsg[0] = VERSION;
     resumeMsg[1] = RESUME;
@@ -350,6 +354,7 @@ struct SocketData findNewServer(char boardState[9], int currentSeqNum){
     resumeMsg[3] = 0x00;
     resumeMsg[4] = currentSeqNum;
 
+    // Fills the resumeMsg with the characters for the board state
     for (int i = 5; i < 14; i++){
         resumeMsg[i] = boardState[i - 5];
     }
@@ -406,6 +411,8 @@ struct SocketData createClientSocket(char ipAddr[15], int port)
     return sockData;
 }
 
+// Function for reading IP address and port number from a file in case the 
+// multicast request fails
 struct SocketData findServerFromFile(char boardState[9], int currentSeqNum){
     char* filename = "./fallback.txt";
     FILE *file;

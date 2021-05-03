@@ -239,9 +239,12 @@ void setBoardState(char board[ROWS][COLUMNS], char boardState[9]){
     }
 }
 
+// Function for generating a multicast socket
 struct SocketData createMulticastSocket(char ipAddr[15], int port, struct ip_mreq mreq)
 {
     struct SocketData MC_sockData;
+
+    // Build the socket
     MC_sockData.sock = socket(AF_INET, SOCK_DGRAM, 0);
     bzero((char *)&MC_sockData.my_addr, sizeof(MC_sockData.my_addr));
     MC_sockData.my_addr.sin_family = AF_INET;
@@ -257,6 +260,8 @@ struct SocketData createMulticastSocket(char ipAddr[15], int port, struct ip_mre
 
     mreq.imr_multiaddr.s_addr = inet_addr(ipAddr);
     mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+
+    // Make the socket a multicast socket
     if (setsockopt(MC_sockData.sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) < 0)
     {
         perror("setsockopt mreq");
